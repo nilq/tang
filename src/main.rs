@@ -8,6 +8,10 @@ use tang::parser::*;
 fn main() {
   let content = r#"
 a: int = 10
+
+foo: def(a: int, b: int) -> int {
+  
+}
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());

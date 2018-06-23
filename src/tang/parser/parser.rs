@@ -118,10 +118,41 @@ impl<'p> Parser<'p> {
     Ok(statement)
   }
 
-
-
   fn parse_right_hand(&mut self) -> Result<Option<Expression<'p>>, ()> {
     let declaration = match self.current_lexeme().as_str() {
+      "def" => {
+        let mut position = self.current_position();
+
+        self.next()?;
+
+        self.expect_lexeme("(")?;
+
+        let params = self.parse_block_of(("(", ")"), &Self::_parse_param_comma)?;
+
+        let retty = if self.current_lexeme() == "->" {
+          self.next()?;
+
+          self.parse_type()?
+        } else {
+          Type::from(TypeNode::Nil)
+        };
+
+        position = self.span_from(position);
+
+        self.expect_lexeme("{")?;
+
+        Some(
+          Expression::new(
+            ExpressionNode::Function(
+              params,
+              retty,
+              Rc::new(self.parse_expression()?)
+            ),
+
+            position
+          )
+        )
+      }
       _ => None
     };
 
@@ -186,6 +217,21 @@ impl<'p> Parser<'p> {
           ExpressionNode::Bool(self.eat()? == "true"),
           position
         ),
+
+        Symbol => match self.current_lexeme().as_str() {
+          "{" => Expression::new(
+            ExpressionNode::Block(self.parse_block_of(("{", "}"), &Self::_parse_statement)?),
+            position
+          ),
+
+          ref symbol => return Err(
+            response!(
+              Wrong(format!("unexpected symbol `{}`", symbol)),
+              self.source.file,
+              TokenElement::Ref(self.current())
+            )
+          )
+        }
 
         ref token_type => return Err(
           response!(
@@ -573,6 +619,16 @@ impl<'p> Parser<'p> {
 
 
 
+  fn _parse_statement(self: &mut Self) -> Result<Option<Statement<'p>>, ()> {
+    if self.remaining() > 0 {
+      Ok(Some(self.parse_statement()?))
+    } else {
+      Ok(None)
+    }
+  }
+
+
+
   fn _parse_expression(self: &mut Self) -> Result<Option<Expression<'p>>, ()> {
     let expression = self.parse_expression()?;
 
@@ -605,6 +661,40 @@ impl<'p> Parser<'p> {
     }
 
     expression
+  }
+
+
+
+  fn _parse_param_comma(self: &mut Self) -> Result<Option<(String, Type)>, ()> {
+    if self.remaining() > 0 && self.current_lexeme() == "\n" {
+      self.next()?
+    }
+
+    if self.remaining() == 0 {
+      return Ok(None)
+    }    
+
+    let name = self.eat_type(&TokenType::Identifier)?;
+    
+    self.eat_lexeme(":")?;
+
+    let kind = self.parse_type()?;
+
+    let param = Some((name, kind));
+
+    if self.remaining() > 0 && self.current_lexeme() == "\n" {
+      self.next()?
+    }
+
+    if self.remaining() > 0 {
+      self.eat_lexeme(",")?;
+
+      if self.remaining() > 0 && self.current_lexeme() == "\n" {
+        self.next()?
+      }
+    }
+
+    Ok(param)
   }
 
 
