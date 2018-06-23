@@ -8,7 +8,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub enum TypeNode {
   Int,
-  Double,
+  Float,
   Bool,
   Str,
   Char,
@@ -25,7 +25,7 @@ impl TypeNode {
 
     match *other {
       ExpressionNode::Int(_) => match *self {
-        Int | Double => true,
+        Int | Float => true,
         _           => false,
       },
 
@@ -52,7 +52,7 @@ impl PartialEq for TypeNode {
 
     match (self, other) {
       (&Int,   &Int)   => true,
-      (&Double, &Double) => true,
+      (&Float, &Float) => true,
 
       (&Bool, &Bool) => true,
       (&Str,  &Str)  => true,
@@ -84,7 +84,7 @@ impl Display for TypeNode {
 
     match *self {
       Int              => write!(f, "int"),
-      Double           => write!(f, "double"),
+      Float           => write!(f, "double"),
       Bool             => write!(f, "bool"),
       Str              => write!(f, "string"),
       Char             => write!(f, "char"),

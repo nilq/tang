@@ -3,10 +3,17 @@ extern crate colored;
 mod tang;
 use tang::lexer::*;
 use tang::source::*;
+use tang::parser::*;
 
 fn main() {
   let content = r#"
-aw: int = 1000
+"hmm"
+r"hmm \n"
+
+'h'
+'\t'
+
+1200 as float
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());
@@ -22,5 +29,15 @@ aw: int = 1000
     }
   }
 
-  println!("{:#?}", tokens)
+  let tokens_ref = tokens.iter().map(|x| &*x).collect::<Vec<&Token>>();
+
+  let mut parser = Parser::new(tokens_ref, &source);
+  
+  match parser.parse() {
+    Ok(ast) => {
+      println!("{:#?}", ast);
+    },
+
+    _ => return,
+  }
 }
