@@ -9,8 +9,14 @@ fn main() {
   let content = r#"
 a: int = 10
 
-foo: def(a: int, b: int) -> int {
-  return 100
+foo: def(a: int, b: int) -> [int] {
+  if a <= b {
+    return [a, b]
+  } elif b <= a {
+    return [a, b]
+  } else {
+    return [a, a]
+  }
 }
   "#;
 
