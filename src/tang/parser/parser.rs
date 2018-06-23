@@ -255,6 +255,11 @@ impl<'p> Parser<'p> {
             position
           ),
 
+          "[" => Expression::new(
+            ExpressionNode::Array(self.parse_block_of(("[", "]"), &Self::_parse_expression_comma)?),
+            self.span_from(position)
+          ),
+
           ref symbol => return Err(
             response!(
               Wrong(format!("unexpected symbol `{}`", symbol)),
