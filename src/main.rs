@@ -10,7 +10,7 @@ fn main() {
 a: int = 10
 
 foo: def(a: int, b: int) -> int {
-  
+  return 100
 }
   "#;
 

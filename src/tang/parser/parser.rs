@@ -40,6 +40,37 @@ impl<'p> Parser<'p> {
     }
 
     let statement = match *self.current_type() {
+      Keyword => match self.current_lexeme().as_str() {
+        "return" => {
+          let position = self.current_position();
+
+          self.next()?;
+
+          if ["}", "\n"].contains(&self.current_lexeme().as_str()) {
+            Statement::new(
+              StatementNode::Return(None),
+              position
+            )
+          } else {
+            Statement::new(
+              StatementNode::Return(Some(Rc::new(self.parse_expression()?))),
+              self.span_from(position)
+            )
+          }
+        },
+
+        _ => {
+          let expression = self.parse_expression()?;
+
+          let position = expression.pos.clone();
+
+          Statement::new(
+            StatementNode::Expression(expression),
+            position,
+          )
+        },
+      },
+
       Identifier => {
         let name = self.eat_type(&Identifier)?;
 
