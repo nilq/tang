@@ -40,6 +40,67 @@ impl<'p> Parser<'p> {
     }
 
     let statement = match *self.current_type() {
+      Identifier => {
+        let name = self.eat_type(&Identifier)?;
+
+        match self.current_lexeme().as_str() {
+          ":" => {
+            self.next()?;
+
+            let position = self.current_position();
+            let backup   = self.index;
+
+            if let Some(right) = self.parse_right_hand()? {
+              Statement::new(
+                StatementNode::Variable(
+                  Type::from(TypeNode::Nil),
+                  name,
+                  Some(right)
+                ),
+                self.span_from(position)
+              )
+            } else {
+              self.index = backup;
+
+              let kind = self.parse_type()?;
+
+              if self.current_lexeme() == "=" {
+                self.next()?;
+
+                Statement::new(
+                  StatementNode::Variable(
+                    kind,
+                    name,
+                    Some(self.parse_expression()?)
+                  ),
+                  self.span_from(position)
+                )
+              } else {
+                Statement::new(
+                  StatementNode::Variable(
+                    kind,
+                    name,
+                    None
+                  ),
+                  self.span_from(position)
+                )
+              }
+            }
+          },
+
+          _ => {
+            let expression = self.parse_expression()?;
+
+            let position = expression.pos.clone();
+
+            Statement::new(
+              StatementNode::Expression(expression),
+              position,
+            )
+          },
+        }
+      },
+
       _ => {
         let expression = self.parse_expression()?;
 
@@ -55,6 +116,16 @@ impl<'p> Parser<'p> {
     self.new_line()?;
 
     Ok(statement)
+  }
+
+
+
+  fn parse_right_hand(&mut self) -> Result<Option<Expression<'p>>, ()> {
+    let declaration = match self.current_lexeme().as_str() {
+      _ => None
+    };
+
+    Ok(declaration)
   }
 
 

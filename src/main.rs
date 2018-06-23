@@ -7,13 +7,7 @@ use tang::parser::*;
 
 fn main() {
   let content = r#"
-"hmm"
-r"hmm \n"
-
-'h'
-'\t'
-
-1200 as float
+a: int = 10
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());
