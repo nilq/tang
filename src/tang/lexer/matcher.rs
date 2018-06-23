@@ -341,14 +341,14 @@ impl<'t> Matcher<'t> for NumberLiteralMatcher {
           Err(error) => panic!("unable to parse float: {}", error)
         };
 
-        Ok(Some(token!(tokenizer, Double, accum)))
+        Ok(Some(token!(tokenizer, Float, literal)))
       } else {
         let literal: String = match accum.parse::<i64>() {
           Ok(result) => result.to_string(),
           Err(error) => panic!("unable to parse int: {}", error)
         };
 
-        Ok(Some(token!(tokenizer, Int, accum)))
+        Ok(Some(token!(tokenizer, Int, literal)))
       }
     }
   }
