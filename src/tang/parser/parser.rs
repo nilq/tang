@@ -156,9 +156,11 @@ impl<'p> Parser<'p> {
 
         self.next()?;
 
-        self.expect_lexeme("(")?;
-
-        let params = self.parse_block_of(("(", ")"), &Self::_parse_param_comma)?;
+        let params = if self.current_lexeme() == "(" {
+          self.parse_block_of(("(", ")"), &Self::_parse_param_comma)?
+        } else {
+          Vec::new()
+        };
 
         let retty = if self.current_lexeme() == "->" {
           self.next()?;
@@ -169,6 +171,8 @@ impl<'p> Parser<'p> {
         };
 
         position = self.span_from(position);
+
+        self.next_newline()?;
 
         self.expect_lexeme("{")?;
 
@@ -549,6 +553,16 @@ impl<'p> Parser<'p> {
     } else {
       Ok(())
     }
+  }
+
+
+
+  fn next_newline(&mut self) -> Result<(), ()> {
+    while self.current_lexeme() == "\n" && self.remaining() > 0 {
+      self.next()?
+    }
+
+    Ok(())
   }
 
 

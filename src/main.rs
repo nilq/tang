@@ -18,6 +18,11 @@ foo: def(a: int, b: int) -> [int] {
     return [a, a]
   }
 }
+
+bar: def
+{
+  return
+}
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());
