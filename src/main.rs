@@ -11,11 +11,11 @@ a: int = 10
 
 foo: def(a: int, b: int) -> [int] {
   if a <= b {
-    return [a, b]
+    [a, b]
   } elif b <= a {
-    return [a, b]
+    [a, b]
   } else {
-    return [a, a]
+    [a, a]
   }
 }
 
