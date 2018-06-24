@@ -7,6 +7,7 @@ use super::*;
 pub enum StatementNode<'s> {
   Expression(Expression<'s>),
   Variable(Type, String, Option<Expression<'s>>),
+  Assignment(Expression<'s>, Expression<'s>),
   Return(Option<Rc<Expression<'s>>>),
 }
 

@@ -4,10 +4,13 @@ mod tang;
 use tang::lexer::*;
 use tang::source::*;
 use tang::parser::*;
+use tang::visitor::*;
 
 fn main() {
   let content = r#"
 a: int = 10
+
+a = "string hahaha"
 
 foo: def(a: int, b: int) -> [int] {
   if a <= b {
@@ -45,6 +48,10 @@ bar: def
   match parser.parse() {
     Ok(ast) => {
       println!("{:#?}", ast);
+
+      let mut visitor = Visitor::new(&source, &ast);
+
+      visitor.visit();
     },
 
     _ => return,

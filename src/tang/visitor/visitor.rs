@@ -1,6 +1,8 @@
 use std::fmt::{ self, Display, Write, Formatter };
 use std::rc::Rc;
 
+use super::super::error::Response::Wrong;
+
 use super::*;
 
 
@@ -206,5 +208,646 @@ impl Type {
 impl Display for Type {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     write!(f, "{}{}", self.mode, self.node)
+  }
+}
+
+
+
+#[derive(Debug, Clone)]
+pub enum FlagContext {
+  Block(Option<Type>),
+  Nothing,
+}
+
+
+
+pub struct Visitor<'v> {
+  pub tabs:       Vec<(SymTab, TypeTab)>,
+  pub tab_frames: Vec<(SymTab, TypeTab)>,
+
+  pub source:  &'v Source,
+  pub ast:     &'v Vec<Statement<'v>>,
+
+  pub flag: Option<FlagContext>,
+}
+
+impl<'v> Visitor<'v> {
+  pub fn new(source: &'v Source, ast: &'v Vec<Statement<'v>>) -> Self {
+    Visitor {
+      tabs:       vec!((SymTab::global(), TypeTab::global())),
+      tab_frames: Vec::new(), // very intelligent hack
+
+      source,
+      ast,
+
+      flag: None,
+    }
+  }
+
+  pub fn visit(&mut self) -> Result<(), ()> {
+    for statement in self.ast {
+      self.visit_statement(&statement)?
+    }
+
+    self.tab_frames.push(self.tabs.last().unwrap().clone());
+
+    Ok(())
+  }
+
+  pub fn visit_statement(&mut self, statement: &'v Statement<'v>) -> Result<(), ()> {
+    use self::StatementNode::*;
+
+    match statement.node {
+      Expression(ref expression) => self.visit_expression(expression),
+      Variable(..)               => self.visit_variable(&statement.node),
+
+      Assignment(ref left, ref right) => {
+        let left_type  = self.type_expression(left)?;
+        let right_type = self.type_expression(right)?;
+
+        if !left_type.node.check_expression(&Parser::fold_expression(right)?.node) && left_type.node != right_type.node {
+          return Err(
+            response!(
+              Wrong(format!("mismatched types, expected type `{}` got `{}`", left_type.node, right_type)),
+              self.source.file,
+              right.pos
+            )
+          )
+        }
+
+        Ok(())
+      },
+
+      _ => Ok(())
+    }
+  }
+
+  fn ensure_no_implicit(&self, expression: &'v Expression<'v>) -> Result<(), ()> {
+    use self::ExpressionNode::*;
+
+    match expression.node {
+      Block(ref statements) => if let Some(statement) = statements.last() {
+        if let StatementNode::Expression(ref expression) = statement.node {
+          match expression.node {
+
+            Call(..)   => (),
+            Block(..)  => { self.ensure_no_implicit(expression)?; }
+
+            If(_, ref expr, _) => self.ensure_no_implicit(&*expr)?,
+
+            _ => return Err(
+              response!(
+                Wrong("unexpected expression without context"),
+                self.source.file,
+                expression.pos
+              )
+            )
+          }
+        }
+
+        ()
+      } else {
+        ()
+      },
+
+      Call(..)   => (),
+
+      If(_, ref expr, _) => self.ensure_no_implicit(&*expr)?,
+
+      _ => return Err(
+        response!(
+          Wrong("unexpected expression without context"),
+          self.source.file,
+          expression.pos
+        )
+      )
+    }
+
+    Ok(())
+  }
+
+  fn visit_expression(&mut self, expression: &'v Expression<'v>) -> Result<(), ()> {
+    use self::ExpressionNode::*;
+
+    match expression.node {
+      Identifier(ref name) => if self.current_tab().0.get_name(name).is_none() {
+        Err(
+          response!(
+            Wrong(format!("no such value `{}` in this scope", name)),
+            self.source.file,
+            expression.pos
+          )
+        )
+      } else {
+        Ok(())
+      },
+
+      Block(ref statements) => {
+        self.push_scope();
+
+        for (i, statement) in statements.iter().enumerate() {
+          if i < statements.len() - 1 {
+            if let StatementNode::Expression(ref expression) = statement.node {
+              self.ensure_no_implicit(expression)?
+            }
+          }
+
+          self.visit_statement(statement)?
+        }
+
+        self.pop_scope();
+
+        Ok(())
+      },
+
+      If(ref condition, ref body, ref elses) => {
+        self.visit_expression(&*condition)?;
+
+        let condition_type = self.type_expression(&*condition)?.node;
+
+        if condition_type == TypeNode::Bool {
+
+          self.push_scope();
+
+          self.visit_expression(body)?;
+          let body_type = self.type_expression(body)?;
+
+          self.pop_scope();
+
+          if let &Some(ref elses) = elses {
+            for &(ref maybe_condition, ref body, _) in elses {
+              if let Some(ref condition) = *maybe_condition {
+                let condition_type = self.type_expression(condition)?.node;
+
+                if condition_type != TypeNode::Bool {
+                  return Err(
+                    response!(
+                      Wrong(format!("mismatched condition, must be `bool` got `{}`", condition_type)),
+                      self.source.file,
+                      condition.pos
+                    )
+                  )
+                }
+              }
+
+              self.push_scope();
+
+              self.visit_expression(body)?;
+              let else_body_type = self.type_expression(body)?;
+
+              self.pop_scope();
+
+              if body_type != else_body_type {
+                return Err(
+                  response!(
+                    Wrong(format!("mismatched types, expected `{}` got `{}`", body_type, else_body_type)),
+                    self.source.file,
+                    body.pos
+                  )
+                )
+              }
+            }
+          }
+
+          Ok(())
+
+        } else {
+          return Err(
+            response!(
+              Wrong(format!("mismatched condition, must be `bool` got `{}`", condition_type)),
+              self.source.file,
+              expression.pos
+            )
+          )
+        }
+      },
+
+      Call(ref expression, ref args) => {
+        self.visit_expression(expression)?;
+
+        let expression_type = self.type_expression(expression)?.node;
+
+        if let TypeNode::Func(ref params, ..) = expression_type {
+          for (index, param) in params.iter().enumerate() {
+            let arg_type = self.type_expression(&args[index])?;
+
+            if !param.node.check_expression(&args[index].node) && param != &arg_type {
+              return Err(
+                response!(
+                  Wrong(format!("mismatched argument, expected `{}` got `{}`", expression_type, arg_type)),
+                  self.source.file,
+                  expression.pos
+                )
+              )
+            }
+          }
+        } else {
+          return Err(
+            response!(
+              Wrong(format!("expected function, found `{}`", expression_type)),
+              self.source.file,
+              expression.pos
+            )
+          )
+        }
+
+        Ok(())
+      },
+
+      Function(ref params, ref return_type, ref body) => {
+        use self::ExpressionNode::*;
+        use self::StatementNode::*;
+
+        let mut param_names = Vec::new();
+        let mut param_types = Vec::new();
+
+        for param in params {
+          param_names.push(param.0.clone());
+          param_types.push(param.1.clone());
+        }
+
+        let parent = self.current_tab().clone();
+
+        self.tabs.push(
+          (
+            SymTab::new(Rc::new(parent.0), &param_names),
+            TypeTab::new(Rc::new(parent.1), &param_types)
+          )
+        );
+
+        self.visit_expression(body)?;
+        let body_type = self.type_expression(body)?;
+
+        self.pop_scope();
+
+        if return_type != &body_type {
+          Err(
+            response!(
+              Wrong(format!("mismatched return type, expected `{}` got `{}`", return_type, body_type)),
+              self.source.file,
+              expression.pos
+            )
+          )
+        } else {
+          Ok(())
+        }
+      },
+
+      Array(ref content) => {
+        let t = self.type_expression(content.first().unwrap())?;
+
+        for element in content {
+          let element_type = self.type_expression(element)?;
+
+          if !t.node.check_expression(&Parser::fold_expression(element)?.node) && t.node != element_type.node {
+            return Err(
+              response!(
+                Wrong(format!("mismatched types in array, expected `{}` got `{}`", t, element_type)),
+                self.source.file,
+                element.pos
+              )
+            )
+          }
+        }
+
+        Ok(())
+      },
+
+      Index(ref left, ref index) => {
+        let left_type = self.type_expression(left)?;
+
+        if let TypeNode::Array(_) = left_type.node {
+          let index_type = self.type_expression(index)?;
+
+          if let TypeNode::Func(_, _) = index_type.node {
+            return Err(
+              response!(
+                Wrong(format!("can't index with `{}`, must be unsigned integer", index_type)),
+                self.source.file,
+                left.pos
+              )
+            )
+          }
+
+        } else {
+          return Err(
+            response!(
+              Wrong(format!("can't index `{}`", left_type)),
+              self.source.file,
+              left.pos
+            )
+          )
+        }
+
+        Ok(())
+      },
+
+      _ => Ok(())
+    }
+  }
+
+
+
+  fn visit_variable(&mut self, variable: &'v StatementNode) -> Result<(), ()> {
+    use self::ExpressionNode::*;
+
+    if let &StatementNode::Variable(ref variable_type, ref name, ref right) = variable {
+      let index = if let Some((index, _)) = self.current_tab().0.get_name(name) {
+        index
+      } else {
+        self.current_tab().0.add_name(name)
+      };
+
+      self.current_tab().1.grow();
+
+      if let &Some(ref right) = right {
+        let right_type = self.type_expression(&right)?;
+
+        match right.node {
+          Function(..) | Block(_) | If(..) => (),
+          _ => self.visit_expression(right)?,
+        }
+
+        if variable_type.node != TypeNode::Nil {
+          if !variable_type.node.check_expression(&Parser::fold_expression(right)?.node) && variable_type.node != right_type.node {
+            return Err(
+              response!(
+                Wrong(format!("mismatched types, expected type `{}` got `{}`", variable_type.node, right_type)),
+                self.source.file,
+                right.pos
+              )
+            )
+          } else {
+            self.current_tab().1.set_type(index, 0, variable_type.to_owned())?;
+          }
+
+        } else {
+          self.current_tab().1.set_type(index, 0, right_type)?;
+        }
+
+        match right.node {
+          Function(..) | Block(_) | If(..) => self.visit_expression(right)?,
+          _ => (),
+        }
+
+      } else {
+        self.current_tab().1.set_type(index, 0, variable_type.to_owned())?;
+      }
+
+      Ok(())
+    } else {
+      unreachable!()
+    }
+  }
+
+
+
+  pub fn type_statement(&mut self, statement: &'v Statement<'v>) -> Result<Type, ()> {
+    use self::StatementNode::*;
+
+    let t = match statement.node {
+      Expression(ref expression) => self.type_expression(expression)?,
+      Return(ref expression)     => if let Some(ref expression) = *expression {
+        self.type_expression(expression)?
+      } else {
+        Type::from(TypeNode::Nil)
+      }
+      _                          => Type::from(TypeNode::Nil)
+    };
+
+    Ok(t)
+  }
+
+
+
+  pub fn type_expression(&mut self, expression: &'v Expression<'v>) -> Result<Type, ()> {
+    use self::ExpressionNode::*;
+
+    let t = match expression.node {
+      Identifier(ref name) => if let Some((index, env_index)) = self.current_tab().0.get_name(name) {
+        self.current_tab().1.get_type(index, env_index)?
+      } else {
+        return Err(
+          response!(
+            Wrong(format!("no such value `{}` in this scope", name)),
+            self.source.file,
+            expression.pos
+          )
+        )
+      },
+
+      Str(_)   => Type::from(TypeNode::Str),
+      Char(_)  => Type::from(TypeNode::Char),
+      Bool(_)  => Type::from(TypeNode::Bool),
+      Int(_)   => Type::from(TypeNode::Int),
+      Float(_) => Type::from(TypeNode::Float),
+
+      Call(ref expression, _) => {
+        if let TypeNode::Func(_, ref return_type) = self.type_expression(expression)?.node {
+          (**return_type).clone()
+        } else {
+          panic!("accident (submit an issue): called {:#?}", self.type_expression(expression)?.node)
+        }
+      },
+
+      Index(ref array, _) => if let TypeNode::Array(ref t) = self.type_expression(array)?.node {
+        (**t).clone()
+      } else {
+        unreachable!()
+      },
+
+      If(_, ref expression, _) => self.type_expression(expression)?,
+
+      Array(ref content) => Type::array(self.type_expression(content.first().unwrap())?),
+
+      Cast(_, ref t) => Type::from(t.node.clone()),
+
+      Binary(ref left, ref op, ref right) => {
+        use self::Operator::*;
+
+        match (self.type_expression(left)?.node, op, self.type_expression(right)?.node) {
+          (ref a, ref op, ref b) => match **op {
+            Add | Sub | Mul | Div | Pow | Mod => if [a, b] != [&TypeNode::Nil, &TypeNode::Nil] { // real hack here
+              Type::from(if a != &TypeNode::Nil { a.to_owned() } else { b.to_owned() })
+            } else {
+              return Err(
+                response!(
+                  Wrong(format!("can't perform operation `{} {} {}`", a, op, b)),
+                  self.source.file,
+                  expression.pos
+                )
+              )
+            },
+
+            Concat => if *a == TypeNode::Str {
+              match *b {
+                TypeNode::Func(..) | TypeNode::Array(..) => return Err(
+                  response!(
+                    Wrong(format!("can't perform operation `{} {} {}`", a, op, b)),
+                    self.source.file,
+                    expression.pos
+                  )
+                ),
+
+                _ => Type::from(TypeNode::Str)
+              }
+            } else {
+              return Err(
+                response!(
+                  Wrong(format!("can't perform operation `{} {} {}`", a, op, b)),
+                  self.source.file,
+                  expression.pos
+                )
+              )
+            },
+
+            Eq | Lt | Gt | NEq | LtEq | GtEq => if a == b {
+              Type::from(TypeNode::Bool)
+            } else {
+              return Err(
+                response!(
+                  Wrong(format!("can't perform operation `{} {} {}`", a, op, b)),
+                  self.source.file,
+                  expression.pos
+                )
+              )
+            },
+
+            _ => return Err(
+              response!(
+                Wrong(format!("can't perform operation `{} {} {}`", a, op, b)),
+                self.source.file,
+                expression.pos
+              )
+            )
+          },
+
+          _ => Type::from(TypeNode::Nil),
+        }
+      },
+
+      Function(ref params, ref return_type, _) => {
+        let mut param_types = Vec::new();
+
+        for param in params {
+          param_types.push(param.1.clone())
+        }
+
+        Type::function(param_types, return_type.clone())
+      },
+
+      Block(ref statements) => {
+        let flag_backup = self.flag.clone();
+
+        if self.flag.is_none() {
+          self.flag = Some(FlagContext::Block(None))
+        }
+
+        let block_type = if statements.len() > 0 {
+          for element in statements {
+
+            match element.node {
+              StatementNode::Expression(ref expression) => match expression.node {
+                Block(_) | If(..) => { self.type_expression(expression)?; },
+
+                _ => (),
+              },
+
+              StatementNode::Return(ref return_type) => {
+                let flag = self.flag.clone();
+
+                if let Some(ref flag) = flag {
+                  if let &FlagContext::Block(ref consistent) = flag {
+
+                    let return_type = if let Some(ref return_type) = *return_type {
+                      self.type_expression(&return_type)?
+                    } else {
+                      Type::from(TypeNode::Nil)
+                    };
+
+                    if let Some(ref consistent) = *consistent {
+                      if return_type != *consistent {
+                        return Err(
+                          response!(
+                            Wrong(format!("mismatched types, expected `{}` found `{}`", consistent, return_type)),
+                            self.source.file,
+                            expression.pos
+                          )
+                        )
+                      }
+                    } else {
+                      self.flag = Some(FlagContext::Block(Some(return_type.clone())))
+                    }
+                  }
+                }
+              },
+
+              _ => (),
+            }
+          }
+
+          self.visit_expression(&expression)?;
+
+          self.tabs.push(self.tab_frames.last().unwrap().clone());
+
+          let last          = statements.last().unwrap();
+          let implicit_type = self.type_statement(last)?;
+
+          self.tabs.pop();
+
+          if let Some(flag) = self.flag.clone() {
+            if let FlagContext::Block(ref consistent) = flag {
+              if let Some(ref consistent) = *consistent {
+                if implicit_type != *consistent {
+                  return Err(
+                    response!(
+                      Wrong(format!("mismatched types, expected `{}` found `{}`", consistent, implicit_type)),
+                      self.source.file,
+                      last.pos
+                    )
+                  )
+                }
+              } else {
+                self.flag = Some(FlagContext::Block(Some(implicit_type.clone())))
+              }
+            }
+          }
+
+          implicit_type
+
+        } else {
+          Type::from(TypeNode::Nil)
+        };
+
+        self.flag = flag_backup;
+
+        block_type
+      },
+
+      _ => Type::from(TypeNode::Nil)
+    };
+
+    Ok(t)
+  }
+
+
+
+  pub fn current_tab(&mut self) -> &mut (SymTab, TypeTab) {
+    let len = self.tabs.len() - 1;
+
+    &mut self.tabs[len]
+  }
+
+
+
+  pub fn push_scope(&mut self) {
+    let local_symtab  = SymTab::new(Rc::new(self.current_tab().0.clone()), &[]);
+    let local_typetab = TypeTab::new(Rc::new(self.current_tab().1.clone()), &[]);
+
+    self.tabs.push((local_symtab.clone(), local_typetab.clone()));
+  }
+
+  pub fn pop_scope(&mut self) {
+    self.tab_frames.push(self.tabs.pop().unwrap());
   }
 }

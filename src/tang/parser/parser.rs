@@ -72,7 +72,9 @@ impl<'p> Parser<'p> {
       },
 
       Identifier => {
-        let name = self.eat_type(&Identifier)?;
+        let backup_index = self.index;
+        let position     = self.current_position();
+        let name         = self.eat_type(&Identifier)?;
 
         match self.current_lexeme().as_str() {
           ":" => {
@@ -119,7 +121,25 @@ impl<'p> Parser<'p> {
             }
           },
 
+          "=" => {
+            self.next()?;
+
+            Statement::new(
+              StatementNode::Assignment(
+                Expression::new(
+                  ExpressionNode::Identifier(name),
+                  position.clone()
+                ),
+
+                self.parse_expression()?
+              ),
+              position,
+            )
+          },
+
           _ => {
+            self.index = backup_index;
+
             let expression = self.parse_expression()?;
 
             let position = expression.pos.clone();
@@ -134,13 +154,21 @@ impl<'p> Parser<'p> {
 
       _ => {
         let expression = self.parse_expression()?;
+        let position   = expression.pos.clone();
 
-        let position = expression.pos.clone();
+        if self.current_lexeme() == "=" {
+          self.next()?;
 
-        Statement::new(
-          StatementNode::Expression(expression),
-          position,
-        )
+          Statement::new(
+            StatementNode::Assignment(expression, self.parse_expression()?),
+            position
+          )
+        } else {
+          Statement::new(
+            StatementNode::Expression(expression),
+            position,
+          )
+        }
       },
     };
 
