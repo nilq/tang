@@ -1,5 +1,4 @@
-bar: def<T, K>(a: T, b: K) -> T
-{
+bar: def <T, K> (a: T, b: K) -> T {
   a < b
 }
 

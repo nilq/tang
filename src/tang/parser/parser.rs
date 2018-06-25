@@ -95,7 +95,11 @@ impl<'p> Parser<'p> {
             } else {
               self.index = backup;
 
-              let kind = self.parse_type()?;
+              let kind = if self.current_lexeme() == "=" {
+                Type::from(TypeNode::Nil)
+              } else {
+                self.parse_type()?
+              };
 
               if self.current_lexeme() == "=" {
                 self.next()?;
