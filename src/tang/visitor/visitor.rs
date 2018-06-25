@@ -18,7 +18,6 @@ pub enum TypeNode<'t> {
   Char,
   Nil,
   Id(String),
-  Set(Vec<Type<'t>>),
   Array(Rc<Type<'t>>),
   Func(Vec<Type<'t>>, Rc<Type<'t>>, Vec<String>, Option<&'t ExpressionNode<'t>>),
 }
@@ -65,7 +64,6 @@ impl<'t> PartialEq for TypeNode<'t> {
 
       (&Array(ref a), &Array(ref b)) => a == b,
       (&Id(ref a), &Id(ref b))       => a == b,
-      (&Set(ref a), &Set(ref b))     => a == b,
 
       _                              => false,
     }
@@ -74,12 +72,13 @@ impl<'t> PartialEq for TypeNode<'t> {
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeMode {
   Undeclared,
   Immutable,
   Optional,
   Regular,
+  Splat,
 }
 
 impl<'t> Display for TypeNode<'t> {
@@ -95,19 +94,6 @@ impl<'t> Display for TypeNode<'t> {
       Nil              => write!(f, "nil"),
       Array(ref n)     => write!(f, "[{}]", n),
       Id(ref n)        => write!(f, "{}", n),
-      Set(ref content) => {
-        write!(f, "(");
-
-        for (index, element) in content.iter().enumerate() {
-          if index < content.len() - 1 {
-            write!(f, "{}, ", element)?
-          } else {
-            write!(f, "{}", element)?
-          }
-        }
-
-        write!(f, ")")
-      },
 
       Func(ref params, ref return_type, ..) => {
         write!(f, "(");
@@ -130,14 +116,19 @@ impl<'t> Display for TypeNode<'t> {
 
 impl TypeMode {
   pub fn check(&self, other: &TypeMode) -> bool {
-    use self::TypeMode::{ Optional, Immutable, Regular, Undeclared, };
+    use self::TypeMode::*;
 
     match (self, other) {
-      (&Regular,       &Regular)    => true,
-      (&Immutable,     &Immutable)  => true,
-      (&Undeclared,    &Undeclared) => true,
-      (&Optional,      &Optional)   => true,
-      _                             => false,
+      (&Regular,    &Regular)    => true,
+      (&Regular,    &Immutable)  => true,
+      (&Immutable,  &Immutable)  => true,
+      (&Immutable,  &Regular)    => true,
+      (_,           &Optional)   => true,
+      (&Optional,   _)           => true,
+      (&Undeclared, _)           => false,
+      (_,           &Undeclared) => false,
+      (&Splat,      &Splat)      => true,
+      _                          => false,
     }
   }
 }
@@ -151,23 +142,7 @@ impl Display for TypeMode {
       Immutable  => write!(f, "constant "),
       Undeclared => write!(f, "undeclared "),
       Optional   => write!(f, "optional "),
-    }
-  }
-}
-
-impl PartialEq for TypeMode {
-  fn eq(&self, other: &TypeMode) -> bool {
-    use self::TypeMode::*;
-
-    match (self, other) {
-      (&Regular,    &Regular)    => true,
-      (&Regular,    &Immutable)  => true,
-      (&Immutable,  &Immutable)  => true,
-      (&Immutable,  &Regular)    => true,
-      (_,           &Optional)   => true,
-      (&Optional,   _)           => true,
-      (&Undeclared, _)           => false,
-      (_,           &Undeclared) => false,
+      Splat      => write!(f, "splat "),
     }
   }
 }
@@ -431,7 +406,6 @@ impl<'v> Visitor<'v> {
 
         if let TypeNode::Func(ref params, _, ref generics, ref func) = expression_type {
           for (index, param) in params.iter().enumerate() {
-
             let arg_type = self.type_expression(&args[index])?;
 
             if let TypeNode::Id(ref name) = param.node {
@@ -461,11 +435,49 @@ impl<'v> Visitor<'v> {
             if !param.node.check_expression(&args[index].node) && param != &arg_type {
               return Err(
                 response!(
-                  Wrong(format!("mismatched argument, expected `{}` got `{}`", expression_type, arg_type)),
+                  Wrong(format!("mismatched argument, expected `{}` got `{}`", param, arg_type)),
                   self.source.file,
-                  expression.pos
+                  args[index].pos
                 )
               )
+            }
+          }
+
+          if args.len() > params.len() {
+            let last = params.last().unwrap();
+
+            if last.mode == TypeMode::Splat {
+              for splat in &args[params.len()..] {
+                let splat_type = self.type_expression(&splat)?;
+
+                if let TypeNode::Id(ref name) = last.node {
+                  if generics.contains(name) {
+                    if let Some(kind) = covers.get(name) {
+                      if &splat_type == kind {
+                        continue
+                      } else {
+                        return Err(
+                          response!(
+                            Wrong(format!("mismatched splat argument, expected `{}` got `{}`", kind, splat_type)),
+                            self.source.file,
+                            splat.pos
+                          )
+                        )
+                      }
+                    }
+                  }
+                }
+
+                if !last.node.check_expression(&splat.node) && last != &splat_type {
+                  return Err(
+                    response!(
+                      Wrong(format!("mismatched splat argument, expected `{}` got `{}`", last, splat_type)),
+                      self.source.file,
+                      splat.pos
+                    )
+                  )
+                }
+              }
             }
           }
 

@@ -838,13 +838,26 @@ impl<'p> Parser<'p> {
 
     if self.remaining() == 0 {
       return Ok(None)
-    }    
+    }
+
+    let mut splat = false;
+
+    if self.current_lexeme() == ".." {
+      splat = true;
+
+      self.next()?;
+      self.next_newline()?;
+    }
 
     let name = self.eat_type(&TokenType::Identifier)?;
     
     self.eat_lexeme(":")?;
 
-    let kind = self.parse_type()?;
+    let mut kind = self.parse_type()?;
+
+    if splat {
+      kind.mode = TypeMode::Splat
+    }
 
     let param = Some((name, kind));
 

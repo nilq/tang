@@ -9,6 +9,8 @@ use tang::visitor::*;
 fn main() {
   let content = r#"
 print: def<T> (..splat: T) {}
+
+print("hey", "hey", 100)
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());

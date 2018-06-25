@@ -1,0 +1,5 @@
+print: def<T> ( .. splat: T) {
+  return
+}
+
+print("hey", "hey", 100)

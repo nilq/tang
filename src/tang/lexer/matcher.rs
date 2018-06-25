@@ -314,7 +314,7 @@ impl<'t> Matcher<'t> for NumberLiteralMatcher {
       if !current.is_whitespace() && current.is_digit(10) || current == '.' {
         if current == '.' && accum.contains('.') {
           let pos = tokenizer.pos;
-
+          
           return Err(
             response!(
               Wrong("unexpected extra decimal point"),
