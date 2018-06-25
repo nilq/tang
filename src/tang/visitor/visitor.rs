@@ -1,14 +1,16 @@
 use std::fmt::{ self, Display, Write, Formatter };
 use std::rc::Rc;
+use std::collections::HashMap;
 
 use super::super::error::Response::Wrong;
 
 use super::*;
+use super::TokenElement;
 
 
 
 #[derive(Debug, Clone)]
-pub enum TypeNode {
+pub enum TypeNode<'t> {
   Int,
   Float,
   Bool,
@@ -16,13 +18,13 @@ pub enum TypeNode {
   Char,
   Nil,
   Id(String),
-  Set(Vec<Type>),
-  Array(Rc<Type>),
-  Func(Vec<Type>, Rc<Type>),
+  Set(Vec<Type<'t>>),
+  Array(Rc<Type<'t>>),
+  Func(Vec<Type<'t>>, Rc<Type<'t>>, Vec<String>, Option<&'t ExpressionNode<'t>>),
 }
 
-impl TypeNode {
-  pub fn check_expression(&self, other: &ExpressionNode) -> bool {
+impl<'t> TypeNode<'t> {
+  pub fn check_expression(&self, other: &'t ExpressionNode<'t>) -> bool {
     use self::TypeNode::*;
 
     match *other {
@@ -48,7 +50,7 @@ impl TypeNode {
   }
 }
 
-impl PartialEq for TypeNode {
+impl<'t> PartialEq for TypeNode<'t> {
   fn eq(&self, other: &TypeNode) -> bool {
     use self::TypeNode::*;
 
@@ -80,7 +82,7 @@ pub enum TypeMode {
   Regular,
 }
 
-impl Display for TypeNode {
+impl<'t> Display for TypeNode<'t> {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     use self::TypeNode::*;
 
@@ -106,7 +108,8 @@ impl Display for TypeNode {
 
         write!(f, ")")
       },
-      Func(ref params, ref return_type) => {
+
+      Func(ref params, ref return_type, ..) => {
         write!(f, "(");
 
         for (index, element) in params.iter().enumerate() {
@@ -172,40 +175,37 @@ impl PartialEq for TypeMode {
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Type {
-  pub node: TypeNode,
+pub struct Type<'t> {
+  pub node: TypeNode<'t>,
   pub mode: TypeMode,
 }
 
-impl Type {
-  pub fn new(node: TypeNode, mode: TypeMode) -> Self {
-    Type {
+impl<'t> Type<'t> {
+  pub fn new(node: TypeNode<'t>, mode: TypeMode) -> Self {
+    Self {
       node, mode,
     }
   }
 
-  pub fn id(id: &str) -> Type {
+  pub fn id(id: &str) -> Self {
     Type::new(TypeNode::Id(id.to_owned()), TypeMode::Regular)
   }
 
-  pub fn from(node: TypeNode) -> Type {
+  pub fn from(node: TypeNode<'t>) -> Type<'t> {
     Type::new(node, TypeMode::Regular)
   }
 
-  pub fn set(content: Vec<Type>) -> Type {
-    Type::new(TypeNode::Set(content), TypeMode::Regular)
-  }
 
-  pub fn array(t: Type) -> Type {
+  pub fn array(t: Type<'t>) -> Type<'t> {
     Type::new(TypeNode::Array(Rc::new(t)), TypeMode::Regular)
   }
 
-  pub fn function(params: Vec<Type>, return_type: Type) -> Type {
-    Type::new(TypeNode::Func(params, Rc::new(return_type)), TypeMode::Regular)
+  pub fn function(params: Vec<Type<'t>>, return_type: Type<'t>) -> Self {
+    Type::new(TypeNode::Func(params, Rc::new(return_type), Vec::new(), None), TypeMode::Regular)
   }
 }
 
-impl Display for Type {
+impl<'t> Display for Type<'t> {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     write!(f, "{}{}", self.mode, self.node)
   }
@@ -214,21 +214,21 @@ impl Display for Type {
 
 
 #[derive(Debug, Clone)]
-pub enum FlagContext {
-  Block(Option<Type>),
+pub enum FlagContext<'f> {
+  Block(Option<Type<'f>>),
   Nothing,
 }
 
 
 
 pub struct Visitor<'v> {
-  pub tabs:       Vec<(SymTab, TypeTab)>,
-  pub tab_frames: Vec<(SymTab, TypeTab)>,
+  pub tabs:       Vec<(SymTab, TypeTab<'v>)>,
+  pub tab_frames: Vec<(SymTab, TypeTab<'v>)>,
 
   pub source:  &'v Source,
   pub ast:     &'v Vec<Statement<'v>>,
 
-  pub flag: Option<FlagContext>,
+  pub flag: Option<FlagContext<'v>>,
 }
 
 impl<'v> Visitor<'v> {
@@ -427,9 +427,36 @@ impl<'v> Visitor<'v> {
 
         let expression_type = self.type_expression(expression)?.node;
 
-        if let TypeNode::Func(ref params, ..) = expression_type {
+        let mut covers = HashMap::new();
+
+        if let TypeNode::Func(ref params, _, ref generics, ref func) = expression_type {
           for (index, param) in params.iter().enumerate() {
+
             let arg_type = self.type_expression(&args[index])?;
+
+            if let TypeNode::Id(ref name) = param.node {
+              if generics.contains(name) {
+                if let Some(kind) = covers.get(name) {
+                  if &arg_type == kind {
+                    continue
+                  } else {
+                    return Err(
+                      response!(
+                        Wrong(format!("mismatched argument, expected `{}` got `{}`", expression_type, arg_type)),
+                        self.source.file,
+                        expression.pos
+                      )
+                    )
+                  }
+                }
+
+                covers.insert(name.clone(), arg_type.clone());
+
+                continue
+              }
+            }
+
+
 
             if !param.node.check_expression(&args[index].node) && param != &arg_type {
               return Err(
@@ -441,6 +468,15 @@ impl<'v> Visitor<'v> {
               )
             }
           }
+
+          if covers.len() > 0 {
+            if let Function(ref params, ref return_type, ref body, ref generics) = *func.unwrap() {
+              self.visit_function(expression.pos.clone(), params, return_type, body, generics, Some(covers))?;
+            } else {
+              unreachable!()
+            }
+          }
+
         } else {
           return Err(
             response!(
@@ -454,44 +490,7 @@ impl<'v> Visitor<'v> {
         Ok(())
       },
 
-      Function(ref params, ref return_type, ref body, ref generics) => {
-        use self::ExpressionNode::*;
-        use self::StatementNode::*;
-
-        let mut param_names = Vec::new();
-        let mut param_types = Vec::new();
-
-        for param in params {
-          param_names.push(param.0.clone());
-          param_types.push(param.1.clone());
-        }
-
-        let parent = self.current_tab().clone();
-
-        self.tabs.push(
-          (
-            SymTab::new(Rc::new(parent.0), &param_names),
-            TypeTab::new(Rc::new(parent.1), &param_types)
-          )
-        );
-
-        self.visit_expression(body)?;
-        let body_type = self.type_expression(body)?;
-
-        self.pop_scope();
-
-        if return_type != &body_type {
-          Err(
-            response!(
-              Wrong(format!("mismatched return type, expected `{}` got `{}`", return_type, body_type)),
-              self.source.file,
-              expression.pos
-            )
-          )
-        } else {
-          Ok(())
-        }
-      },
+      Function(ref params, ref return_type, ref body, ref generics) => self.visit_function(expression.pos.clone(), params, return_type, body, generics, None),
 
       Array(ref content) => {
         let t = self.type_expression(content.first().unwrap())?;
@@ -519,7 +518,7 @@ impl<'v> Visitor<'v> {
         if let TypeNode::Array(_) = left_type.node {
           let index_type = self.type_expression(index)?;
 
-          if let TypeNode::Func(_, _) = index_type.node {
+          if let TypeNode::Func(..) = index_type.node {
             return Err(
               response!(
                 Wrong(format!("can't index with `{}`, must be unsigned integer", index_type)),
@@ -543,6 +542,84 @@ impl<'v> Visitor<'v> {
       },
 
       _ => Ok(())
+    }
+  }
+
+
+
+  fn visit_function(
+      &mut self,
+      pos: TokenElement<'v>,
+      params: &'v Vec<(String, Type<'v>)>, return_type: &'v Type<'v>,
+      body: &'v Rc<Expression<'v>>, generics: &Option<Vec<String>>, generic_covers: Option<HashMap<String, Type<'v>>>
+  ) -> Result<(), ()> {
+
+    let mut param_names = Vec::new();
+    let mut param_types = Vec::new();
+
+    let mut return_type = return_type;
+
+    for param in params {
+      param_names.push(param.0.clone());
+
+      let kind = if let Some(ref generics) = *generics {
+        if let TypeNode::Id(ref name) = return_type.node {
+          if generics.contains(name) {
+            if let Some(ref covers) = generic_covers {
+              return_type = covers.get(name).unwrap()
+            }
+          }
+        }
+
+        if let TypeNode::Id(ref name) = param.1.node {
+          if generics.contains(name) {
+            if let Some(ref covers) = generic_covers {
+              covers.get(name).unwrap().clone()
+            } else {
+              param.1.clone()
+            }
+          } else {
+            param.1.clone()
+          }
+        } else {
+          param.1.clone()
+        }
+      } else {
+        param.1.clone()
+      };
+
+      param_types.push(kind);
+    }
+
+    let parent = self.current_tab().clone();
+
+    self.tabs.push(
+      (
+        SymTab::new(Rc::new(parent.0), &param_names),
+        TypeTab::new(Rc::new(parent.1), &param_types, HashMap::new())
+      )
+    );
+
+    if generics.is_none() != generic_covers.is_none() {
+      return Ok(())
+    }
+
+    self.visit_expression(body)?;
+
+    let body_type = self.type_expression(body)?;
+
+    self.pop_scope();
+
+    if return_type != &body_type {
+      Err(
+        response!(
+          Wrong(format!("mismatched return type, expected `{}` got `{}`", return_type, body_type)),
+          self.source.file,
+          pos
+        )
+      )
+    } else {
+      Ok(())
     }
   }
 
@@ -602,7 +679,7 @@ impl<'v> Visitor<'v> {
 
 
 
-  pub fn type_statement(&mut self, statement: &'v Statement<'v>) -> Result<Type, ()> {
+  pub fn type_statement(&mut self, statement: &'v Statement<'v>) -> Result<Type<'v>, ()> {
     use self::StatementNode::*;
 
     let t = match statement.node {
@@ -612,7 +689,7 @@ impl<'v> Visitor<'v> {
       } else {
         Type::from(TypeNode::Nil)
       }
-      _                          => Type::from(TypeNode::Nil)
+      _ => Type::from(TypeNode::Nil)
     };
 
     Ok(t)
@@ -620,12 +697,12 @@ impl<'v> Visitor<'v> {
 
 
 
-  pub fn type_expression(&mut self, expression: &'v Expression<'v>) -> Result<Type, ()> {
+  pub fn type_expression(&mut self, expression: &'v Expression<'v>) -> Result<Type<'v>, ()> {
     use self::ExpressionNode::*;
 
     let t = match expression.node {
       Identifier(ref name) => if let Some((index, env_index)) = self.current_tab().0.get_name(name) {
-        self.current_tab().1.get_type(index, env_index)?
+        self.current_tab().1.get_type(index, env_index)?.clone()
       } else {
         return Err(
           response!(
@@ -643,7 +720,7 @@ impl<'v> Visitor<'v> {
       Float(_) => Type::from(TypeNode::Float),
 
       Call(ref expression, _) => {
-        if let TypeNode::Func(_, ref return_type) = self.type_expression(expression)?.node {
+        if let TypeNode::Func(_, ref return_type, ..) = self.type_expression(expression)?.node {
           (**return_type).clone()
         } else {
           panic!("accident (submit an issue): called {:#?}", self.type_expression(expression)?.node)
@@ -726,14 +803,14 @@ impl<'v> Visitor<'v> {
         }
       },
 
-      Function(ref params, ref return_type, ..) => {
+      Function(ref params, ref return_type, _, ref generics) => {
         let mut param_types = Vec::new();
 
         for param in params {
           param_types.push(param.1.clone())
         }
 
-        Type::function(param_types, return_type.clone())
+        Type::from(TypeNode::Func(param_types, Rc::new(return_type.clone()), generics.clone().unwrap_or(Vec::new()), Some(&expression.node)))
       },
 
       Block(ref statements) => {
@@ -832,7 +909,7 @@ impl<'v> Visitor<'v> {
 
 
 
-  pub fn current_tab(&mut self) -> &mut (SymTab, TypeTab) {
+  pub fn current_tab(&mut self) -> &mut (SymTab, TypeTab<'v>) {
     let len = self.tabs.len() - 1;
 
     &mut self.tabs[len]
@@ -842,7 +919,7 @@ impl<'v> Visitor<'v> {
 
   pub fn push_scope(&mut self) {
     let local_symtab  = SymTab::new(Rc::new(self.current_tab().0.clone()), &[]);
-    let local_typetab = TypeTab::new(Rc::new(self.current_tab().1.clone()), &[]);
+    let local_typetab = TypeTab::new(Rc::new(self.current_tab().1.clone()), &[], HashMap::new());
 
     self.tabs.push((local_symtab.clone(), local_typetab.clone()));
   }

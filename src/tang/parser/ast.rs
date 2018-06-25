@@ -6,7 +6,7 @@ use super::*;
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatementNode<'s> {
   Expression(Expression<'s>),
-  Variable(Type, String, Option<Expression<'s>>),
+  Variable(Type<'s>, String, Option<Expression<'s>>),
   Assignment(Expression<'s>, Expression<'s>),
   Return(Option<Rc<Expression<'s>>>),
 }
@@ -38,10 +38,10 @@ pub enum ExpressionNode<'e> {
   Identifier(String),
   Binary(Rc<Expression<'e>>, Operator, Rc<Expression<'e>>),
   Block(Vec<Statement<'e>>),
-  Cast(Rc<Expression<'e>>, Type),
+  Cast(Rc<Expression<'e>>, Type<'e>),
   Array(Vec<Expression<'e>>),
   Index(Rc<Expression<'e>>, Rc<Expression<'e>>),
-  Function(Vec<(String, Type)>, Type, Rc<Expression<'e>>, Option<Vec<String>>),
+  Function(Vec<(String, Type<'e>)>, Type<'e>, Rc<Expression<'e>>, Option<Vec<String>>),
   Call(Rc<Expression<'e>>, Vec<Expression<'e>>),
   If(Rc<Expression<'e>>, Rc<Expression<'e>>, Option<Vec<(Option<Expression<'e>>, Expression<'e>, TokenElement<'e>)>>),
   EOF,

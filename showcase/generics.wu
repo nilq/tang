@@ -1,0 +1,6 @@
+bar: def<T, K>(a: T, b: K) -> T
+{
+  a < b
+}
+
+bar(10, "hey")

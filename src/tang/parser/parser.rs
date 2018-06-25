@@ -517,7 +517,7 @@ impl<'p> Parser<'p> {
 
 
 
-  fn parse_type(&mut self) -> Result<Type, ()> {
+  fn parse_type(&mut self) -> Result<Type<'p>, ()> {
     use self::TokenType::*;
 
     let t = match *self.current_type() {
@@ -533,16 +533,6 @@ impl<'p> Parser<'p> {
       },
 
       Symbol => match self.current_lexeme().as_str() {
-        "(" => {
-          let content = self.parse_block_of(("(", ")"), &Self::_parse_type_comma)?;
-
-          if content.len() == 1 {
-            content[0].clone()
-          } else {
-            Type::set(content)
-          }
-        },
-
         "[" => {
           self.next()?;
 
@@ -837,7 +827,7 @@ impl<'p> Parser<'p> {
 
 
 
-  fn _parse_param_comma(self: &mut Self) -> Result<Option<(String, Type)>, ()> {
+  fn _parse_param_comma(self: &mut Self) -> Result<Option<(String, Type<'p>)>, ()> {
     if self.remaining() > 0 && self.current_lexeme() == "\n" {
       self.next()?
     }
@@ -871,7 +861,7 @@ impl<'p> Parser<'p> {
 
 
 
-  fn _parse_type_comma(self: &mut Self) -> Result<Option<Type>, ()> {
+  fn _parse_type_comma(self: &mut Self) -> Result<Option<Type<'p>>, ()> {
     if self.remaining() == 0 {
       Ok(None)
     } else {

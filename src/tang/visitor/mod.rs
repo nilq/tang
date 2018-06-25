@@ -4,6 +4,7 @@ pub mod typetab;
 
 use super::parser::*;
 use super::source::*;
+use super::lexer::*;
 
 pub use self::visitor::*;
 pub use self::symtab::*;
