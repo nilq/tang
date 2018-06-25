@@ -330,12 +330,22 @@ impl<'p> Parser<'p> {
 
           "(" => {
             self.next()?;
+            self.next_newline()?;
 
-            let expression = self.parse_expression()?;
+            if self.current_lexeme() == ")" {
+              self.next()?;
 
-            self.eat_lexeme(")")?;
+              Expression::new(
+                ExpressionNode::Empty,
+                self.span_from(position)
+              )
+            } else {
+              let expression = self.parse_expression()?;
 
-            expression
+              self.eat_lexeme(")")?;
+
+              expression
+            }
           },
 
           ref symbol => return Err(

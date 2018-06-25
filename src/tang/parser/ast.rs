@@ -46,6 +46,7 @@ pub enum ExpressionNode<'e> {
   Call(Rc<Expression<'e>>, Vec<Expression<'e>>),
   If(Rc<Expression<'e>>, Rc<Expression<'e>>, Option<Vec<(Option<Expression<'e>>, Expression<'e>, TokenElement<'e>)>>),
   EOF,
+  Empty,
 }
 
 #[derive(Debug, Clone, PartialEq)]

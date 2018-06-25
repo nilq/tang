@@ -8,15 +8,17 @@ use tang::visitor::*;
 
 fn main() {
   let content = r#"
-foo: def(a: str) {
-  return
+foo: def(a: str) -> str {
+  a
 }
 
 print: def<T> (..splat: T) {
   foo(*splat)
+
+  ()
 }
 
-print("hey", "hey")
+print("hey")
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());

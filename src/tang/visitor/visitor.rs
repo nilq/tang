@@ -785,6 +785,8 @@ impl<'v> Visitor<'v> {
         }
       },
 
+      Empty    => Type::from(TypeNode::Nil),
+
       Str(_)   => Type::from(TypeNode::Str),
       Char(_)  => Type::from(TypeNode::Char),
       Bool(_)  => Type::from(TypeNode::Bool),
