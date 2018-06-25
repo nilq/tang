@@ -8,23 +8,9 @@ use tang::visitor::*;
 
 fn main() {
   let content = r#"
-a: int = 10
-
-a = "string hahaha"
-
-foo: def(a: int, b: int) -> [int] {
-  if a <= b {
-    [a, b]
-  } elif b <= a {
-    [a, b]
-  } else {
-    [a, a]
-  }
-}
-
-bar: def
+bar: def<T> (a: T) -> T
 {
-  return
+  a * 2
 }
   "#;
 

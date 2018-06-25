@@ -41,7 +41,7 @@ pub enum ExpressionNode<'e> {
   Cast(Rc<Expression<'e>>, Type),
   Array(Vec<Expression<'e>>),
   Index(Rc<Expression<'e>>, Rc<Expression<'e>>),
-  Function(Vec<(String, Type)>, Type, Rc<Expression<'e>>),
+  Function(Vec<(String, Type)>, Type, Rc<Expression<'e>>, Option<Vec<String>>),
   Call(Rc<Expression<'e>>, Vec<Expression<'e>>),
   If(Rc<Expression<'e>>, Rc<Expression<'e>>, Option<Vec<(Option<Expression<'e>>, Expression<'e>, TokenElement<'e>)>>),
   EOF,

@@ -183,6 +183,15 @@ impl<'p> Parser<'p> {
         let mut position = self.current_position();
 
         self.next()?;
+        self.next_newline()?;
+
+        let generics = if self.current_lexeme() == "<" {
+          self.parse_block_of(("<", ">"), &Self::_parse_name)?
+        } else {
+          Vec::new()
+        };
+
+        self.next_newline()?;
 
         let params = if self.current_lexeme() == "(" {
           self.parse_block_of(("(", ")"), &Self::_parse_param_comma)?
@@ -209,7 +218,8 @@ impl<'p> Parser<'p> {
             ExpressionNode::Function(
               params,
               retty,
-              Rc::new(self.parse_expression()?)
+              Rc::new(self.parse_expression()?),
+              Some(generics)
             ),
 
             position
@@ -777,6 +787,26 @@ impl<'p> Parser<'p> {
     match expression.node {
       ExpressionNode::EOF => Ok(None),
       _                   => Ok(Some(expression)),
+    }
+  }
+
+
+
+  fn _parse_name(self: &mut Self) -> Result<Option<String>, ()> {
+    if self.remaining() == 0 {
+      Ok(None)
+    } else {
+      let t = self.eat_type(&TokenType::Identifier)?;
+
+      if self.remaining() > 0 {
+        self.eat_lexeme(",")?;
+
+        if self.remaining() > 0 && self.current_lexeme() == "\n" {
+          self.next()?
+        }
+      }
+
+      Ok(Some(t))
     }
   }
 

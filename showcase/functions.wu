@@ -1,8 +1,8 @@
 main: def(args: [str]) -> int {
   for arg in args {
     match arg {
-      | "fib" -> fib(100)
-      | "fac" -> fac(100)
+      | "fib" => fib(100)
+      | "fac" => fac(100)
     }
   }
 }

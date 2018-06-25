@@ -86,9 +86,9 @@ impl Display for TypeNode {
 
     match *self {
       Int              => write!(f, "int"),
-      Float           => write!(f, "double"),
+      Float            => write!(f, "float"),
       Bool             => write!(f, "bool"),
-      Str              => write!(f, "string"),
+      Str              => write!(f, "str"),
       Char             => write!(f, "char"),
       Nil              => write!(f, "nil"),
       Array(ref n)     => write!(f, "[{}]", n),
@@ -454,7 +454,7 @@ impl<'v> Visitor<'v> {
         Ok(())
       },
 
-      Function(ref params, ref return_type, ref body) => {
+      Function(ref params, ref return_type, ref body, ref generics) => {
         use self::ExpressionNode::*;
         use self::StatementNode::*;
 
@@ -726,7 +726,7 @@ impl<'v> Visitor<'v> {
         }
       },
 
-      Function(ref params, ref return_type, _) => {
+      Function(ref params, ref return_type, ..) => {
         let mut param_types = Vec::new();
 
         for param in params {
