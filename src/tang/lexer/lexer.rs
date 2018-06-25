@@ -44,6 +44,12 @@ impl<'l> Lexer<'l> {
       )
     );
 
+    lexer.matchers.push(
+      Rc::new(
+        ConstantStringMatcher::new(Symbol, &[".."])
+      )
+    );
+
     lexer.matchers.push(Rc::new(IdentifierMatcher));
     lexer.matchers.push(Rc::new(NumberLiteralMatcher));
     lexer.matchers.push(Rc::new(WhitespaceMatcher));
@@ -51,12 +57,6 @@ impl<'l> Lexer<'l> {
     lexer.matchers.push(
       Rc::new(
         ConstantStringMatcher::new(Operator, &["^", "++", "+", "-", "*", "/", "%", "==", "!=", "<=", ">=", "<", ">",])
-      )
-    );
-
-    lexer.matchers.push(
-      Rc::new(
-        ConstantStringMatcher::new(Symbol, &[".."])
       )
     );
 

@@ -72,13 +72,14 @@ impl<'t> PartialEq for TypeNode<'t> {
 
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum TypeMode {
   Undeclared,
   Immutable,
   Optional,
   Regular,
-  Splat,
+  Splat(Option<usize>),
+  Unwrap(usize),
 }
 
 impl<'t> Display for TypeNode<'t> {
@@ -114,21 +115,23 @@ impl<'t> Display for TypeNode<'t> {
 
 
 
-impl TypeMode {
-  pub fn check(&self, other: &TypeMode) -> bool {
+impl PartialEq for TypeMode {
+  fn eq(&self, other: &TypeMode) -> bool {
     use self::TypeMode::*;
 
     match (self, other) {
-      (&Regular,    &Regular)    => true,
-      (&Regular,    &Immutable)  => true,
-      (&Immutable,  &Immutable)  => true,
-      (&Immutable,  &Regular)    => true,
-      (_,           &Optional)   => true,
-      (&Optional,   _)           => true,
-      (&Undeclared, _)           => false,
-      (_,           &Undeclared) => false,
-      (&Splat,      &Splat)      => true,
-      _                          => false,
+      (&Regular,    &Regular)     => true,
+      (&Regular,    &Immutable)   => true,
+      (&Immutable,  &Immutable)   => true,
+      (&Immutable,  &Regular)     => true,
+      (_,           &Optional)    => true,
+      (&Optional,   _)            => true,
+      (&Undeclared, _)            => false,
+      (_,           &Undeclared)  => false,
+      (&Splat(a),      &Splat(b)) => &a == &b,
+      (&Unwrap(_),  _)            => true,
+      (_,           &Unwrap(_))   => true,
+      _                           => false,
     }
   }
 }
@@ -142,7 +145,8 @@ impl Display for TypeMode {
       Immutable  => write!(f, "constant "),
       Undeclared => write!(f, "undeclared "),
       Optional   => write!(f, "optional "),
-      Splat      => write!(f, "splat "),
+      Splat(_)   => write!(f, ".."),
+      Unwrap(_)  => write!(f, "*"),
     }
   }
 }
@@ -317,6 +321,22 @@ impl<'v> Visitor<'v> {
         Ok(())
       },
 
+      Unwrap(ref expression) => {
+        self.visit_expression(&**expression)?;
+
+        if let TypeMode::Splat(_) = self.type_expression(&**expression)?.mode {
+          Ok(())
+        } else {
+          Err(
+            response!(
+              Wrong("can't unwrap a non-splat value"),
+              self.source.file,
+              expression.pos
+            )
+          )
+        }
+      }
+
       Block(ref statements) => {
         self.push_scope();
 
@@ -405,8 +425,14 @@ impl<'v> Visitor<'v> {
         let mut covers = HashMap::new();
 
         if let TypeNode::Func(ref params, _, ref generics, ref func) = expression_type {
+          let mut actual_arg_len = args.len();
+
           for (index, param) in params.iter().enumerate() {
             let arg_type = self.type_expression(&args[index])?;
+            
+            if let TypeMode::Unwrap(ref len) = arg_type.mode {
+              actual_arg_len += len
+            }
 
             if let TypeNode::Id(ref name) = param.node {
               if generics.contains(name) {
@@ -443,10 +469,10 @@ impl<'v> Visitor<'v> {
             }
           }
 
-          if args.len() > params.len() {
+          if actual_arg_len > params.len() {
             let last = params.last().unwrap();
 
-            if last.mode == TypeMode::Splat {
+            if let TypeMode::Splat(_) = last.mode {
               for splat in &args[params.len()..] {
                 let splat_type = self.type_expression(&splat)?;
 
@@ -480,10 +506,25 @@ impl<'v> Visitor<'v> {
               }
             }
           }
+          
 
-          if covers.len() > 0 {
+          if actual_arg_len > params.len() {
+            match params.last().unwrap().mode {
+              TypeMode::Splat(_) => (),
+              _                  => return Err(
+                response!(
+                  Wrong(format!("too many arguments, expected {} got {}", params.len(), actual_arg_len)),
+                  self.source.file,
+                  args.last().unwrap().pos
+                )
+              )
+            }
+          }
+
+
+          if covers.len() > 0 || actual_arg_len > params.len() {
             if let Function(ref params, ref return_type, ref body, ref generics) = *func.unwrap() {
-              self.visit_function(expression.pos.clone(), params, return_type, body, generics, Some(covers))?;
+              self.visit_function(expression.pos.clone(), params, return_type, body, generics, Some(covers), actual_arg_len - params.len())?;
             } else {
               unreachable!()
             }
@@ -502,7 +543,7 @@ impl<'v> Visitor<'v> {
         Ok(())
       },
 
-      Function(ref params, ref return_type, ref body, ref generics) => self.visit_function(expression.pos.clone(), params, return_type, body, generics, None),
+      Function(ref params, ref return_type, ref body, ref generics) => self.visit_function(expression.pos.clone(), params, return_type, body, generics, None, 0),
 
       Array(ref content) => {
         let t = self.type_expression(content.first().unwrap())?;
@@ -563,7 +604,8 @@ impl<'v> Visitor<'v> {
       &mut self,
       pos: TokenElement<'v>,
       params: &'v Vec<(String, Type<'v>)>, return_type: &'v Type<'v>,
-      body: &'v Rc<Expression<'v>>, generics: &Option<Vec<String>>, generic_covers: Option<HashMap<String, Type<'v>>>
+      body: &'v Rc<Expression<'v>>, generics: &Option<Vec<String>>, generic_covers: Option<HashMap<String, Type<'v>>>,
+      splat_len: usize
   ) -> Result<(), ()> {
 
     let mut param_names = Vec::new();
@@ -586,7 +628,7 @@ impl<'v> Visitor<'v> {
         if let TypeNode::Id(ref name) = param.1.node {
           if generics.contains(name) {
             if let Some(ref covers) = generic_covers {
-              covers.get(name).unwrap().clone()
+              Type::new(covers.get(name).unwrap().clone().node, param.1.mode.clone())
             } else {
               param.1.clone()
             }
@@ -601,6 +643,14 @@ impl<'v> Visitor<'v> {
       };
 
       param_types.push(kind);
+    }
+
+    let last_type = param_types.last().unwrap().clone();
+
+    if let TypeMode::Splat(_) = last_type.mode {
+      let len = param_types.len();
+
+      param_types[len - 1] = Type::new(last_type.node, TypeMode::Splat(Some(splat_len)))
     }
 
     let parent = self.current_tab().clone();
@@ -723,6 +773,16 @@ impl<'v> Visitor<'v> {
             expression.pos
           )
         )
+      },
+
+      Unwrap(ref expr) => {
+        let t = self.type_expression(&**expr)?;
+
+        if let TypeMode::Splat(ref len) = t.mode {
+          Type::new(t.node, TypeMode::Unwrap(len.unwrap()))
+        } else {
+          unreachable!()
+        }
       },
 
       Str(_)   => Type::from(TypeNode::Str),

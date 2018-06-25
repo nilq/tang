@@ -295,6 +295,28 @@ impl<'p> Parser<'p> {
           position
         ),
 
+        Operator => match self.current_lexeme().as_str() {
+          "*" => {
+            self.next()?;
+
+            Expression::new(
+              ExpressionNode::Unwrap(
+                Rc::new(self.parse_expression()?)
+              ),
+
+              self.span_from(position)
+            )
+          },
+
+          ref symbol => return Err(
+            response!(
+              Wrong(format!("unexpected symbol `{}`", symbol)),
+              self.source.file,
+              TokenElement::Ref(self.current())
+            )
+          )
+        },
+
         Symbol => match self.current_lexeme().as_str() {
           "{" => Expression::new(
             ExpressionNode::Block(self.parse_block_of(("{", "}"), &Self::_parse_statement)?),
@@ -305,6 +327,16 @@ impl<'p> Parser<'p> {
             ExpressionNode::Array(self.parse_block_of(("[", "]"), &Self::_parse_expression_comma)?),
             self.span_from(position)
           ),
+
+          "(" => {
+            self.next()?;
+
+            let expression = self.parse_expression()?;
+
+            self.eat_lexeme(")")?;
+
+            expression
+          },
 
           ref symbol => return Err(
             response!(
@@ -856,7 +888,7 @@ impl<'p> Parser<'p> {
     let mut kind = self.parse_type()?;
 
     if splat {
-      kind.mode = TypeMode::Splat
+      kind.mode = TypeMode::Splat(None)
     }
 
     let param = Some((name, kind));
