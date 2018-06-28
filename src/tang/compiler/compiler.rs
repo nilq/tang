@@ -40,7 +40,9 @@ impl<'g> Generator {
     use self::StatementNode::*;
 
     let result = match statement.node {
-      Expression(ref expression) => self.generate_expression(expression),
+      Expression(ref expression)       => self.generate_expression(expression),
+      Variable(_, ref left, ref right) => self.generate_local(left, right),
+
       _ => String::new(),
     };
 
@@ -249,6 +251,51 @@ impl<'g> Generator {
       
       _ => String::new()
     };
+
+    result
+  }
+
+
+
+  fn generate_local<'b>(&mut self, name: &str, right: &'b Option<Expression<'b>>) -> String {
+    use self::ExpressionNode::*;
+    use std::string;
+
+    let flag_backup = self.flag.clone();
+
+    let mut result = {
+      let output = format!("local {}", name);
+
+      self.flag = Some(FlagImplicit::Assign(name.to_string()));
+
+      output
+    };
+
+    if let &Some(ref right) = right {
+      let right_str = self.generate_expression(right);
+
+      result.push_str(&format!(" = {}", right_str))
+    }
+
+    self.flag = flag_backup;
+
+    format!("{}\n", result)
+  }
+
+
+
+  fn generate_assignment<'b>(&mut self, left: &'b Expression, right: &'b Expression) -> String {
+    let left_string  = self.generate_expression(left);
+
+    let flag_backup = self.flag.clone();
+
+    self.flag = Some(FlagImplicit::Assign(left_string.clone()));
+    
+    let right_string = self.generate_expression(right);
+
+    self.flag = flag_backup;
+
+    let result = format!("{} = {}\n", left_string, right_string);
 
     result
   }
