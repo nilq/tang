@@ -15,11 +15,22 @@ foo: def<T>(a: T) -> T {
 print: def<T>(..a: T) {
   foo(*a)
 
-  ()
+  a := ()
+  a
 }
 
 a: [int; 1 + 2] = [1, 2, 3]
 b := a[1]
+
+{
+
+  b := "hey"
+
+  f: str = b
+
+}
+
+h: int = b
 
 print("hey")
   "#;

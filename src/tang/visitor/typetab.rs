@@ -36,13 +36,13 @@ impl<'t> TypeTab<'t> {
 
 
   pub fn set_type(&self, index: usize, env_index: usize, t: Type<'t>) -> Result<(), ()> {
-    if env_index == 0usize {
+    if env_index == 0 {
       match self.types.borrow_mut().get_mut(index) {
         Some(v) => {
           *v = t;
           Ok(())
         },
-        None => Err(response!(Wrong("[type table] invalid type index")))
+        None => self.set_type(index, env_index + 1, t)
       }
     } else {
       match self.parent {
@@ -58,7 +58,7 @@ impl<'t> TypeTab<'t> {
     if env_index == 0 {
       match self.types.borrow().get(index) {
         Some(v) => Ok(v.clone()),
-        None    => Err(response!(Wrong("[type table] invalid type index")))
+        None    => self.get_type(index, env_index + 1)
       }
     } else {
       match self.parent {

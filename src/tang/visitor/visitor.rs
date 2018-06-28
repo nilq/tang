@@ -661,7 +661,7 @@ impl<'v> Visitor<'v> {
       )
     );
 
-    if generics.is_none() != generic_covers.is_none() {
+    if generics.is_none() != generic_covers.is_none() && splat_len == 0 {
       return Ok(())
     }
 
@@ -691,12 +691,12 @@ impl<'v> Visitor<'v> {
 
     if let &StatementNode::Variable(ref variable_type, ref name, ref right) = variable {
       let index = if let Some((index, _)) = self.current_tab().0.get_name(name) {
+        
         index
       } else {
+        self.current_tab().1.grow();
         self.current_tab().0.add_name(name)
       };
-
-      self.current_tab().1.grow();
 
       if let &Some(ref right) = right {
         let right_type = self.type_expression(&right)?;
