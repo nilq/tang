@@ -9,7 +9,7 @@ use super::TokenElement;
 
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum TypeNode<'t> {
   Int,
   Float,
@@ -53,6 +53,28 @@ impl<'t> TypeNode<'t> {
       },
 
       _ => false
+    }
+  }
+}
+
+
+
+impl<'t> PartialEq for TypeNode<'t> {
+  fn eq(&self, other: &Self) -> bool {
+    use self::TypeNode::*;
+
+    match (self, other) {
+      (&Int,                                 &Int)                                 => true,
+      (&Str,                                 &Str)                                 => true,
+      (&Float,                               &Float)                               => true,
+      (&Char,                                &Char)                                => true,
+      (&Bool,                                &Bool)                                => true,
+      (&Nil,                                 &Nil)                                 => true,
+      (&Array(ref a, ref la),                &Array(ref b, ref lb))                => a == b && la == lb,
+      (&Id(ref a),                           &Id(ref b))                           => a == b,
+      (&Func(ref a_params, ref a_retty, ..), &Func(ref b_params, ref b_retty, ..)) => a_params == b_params && a_retty == b_retty,
+
+      _ => false,
     }
   }
 }
@@ -410,13 +432,27 @@ impl<'v> Visitor<'v> {
 
         let mut covers = HashMap::new();
 
+        let mut corrected_params = Vec::new(); // because functions don't know what's best for them >:()
+
         if let TypeNode::Func(ref params, _, ref generics, ref func) = expression_type {
-          let mut actual_arg_len = args.len();
+          let mut actual_arg_len = args.len() - 1;
+
+          let mut type_buffer: Option<Type<'v>> = None; // for unwraps
 
           for (index, param) in params.iter().enumerate() {
-            let arg_type = self.type_expression(&args[index])?;
-            
-            if let TypeMode::Unwrap(ref len) = arg_type.mode {
+            let arg_type = if index < args.len() {
+              self.type_expression(&args[index])?
+            } else {
+              type_buffer.as_ref().unwrap().clone()
+            };
+
+            corrected_params.push(arg_type.clone());
+
+            let mode = arg_type.mode.clone();
+
+            if let TypeMode::Unwrap(ref len) = mode {
+              type_buffer = Some(arg_type.clone());
+
               actual_arg_len += len
             }
 
@@ -442,9 +478,7 @@ impl<'v> Visitor<'v> {
               }
             }
 
-
-
-            if !param.node.check_expression(&args[index].node) && param != &arg_type {
+            if (index < args.len() && !param.node.check_expression(&args[index].node)) && param != &arg_type {
               return Err(
                 response!(
                   Wrong(format!("mismatched argument, expected `{}` got `{}`", param, arg_type)),
@@ -510,7 +544,23 @@ impl<'v> Visitor<'v> {
 
           if covers.len() > 0 || actual_arg_len > params.len() {
             if let Function(ref params, ref return_type, ref body, ref generics) = *func.unwrap() {
-              self.visit_function(expression.pos.clone(), params, return_type, body, generics, Some(covers), actual_arg_len - params.len())?;
+
+              let mut real_params = Vec::new();
+
+              for (i, param) in params.iter().enumerate() {
+                real_params.push(
+                  (
+                    param.0.clone(),
+                    if let TypeNode::Func(..) = param.1.node {
+                      corrected_params[i].clone()
+                    } else {
+                      param.1.clone()
+                    }
+                  )
+                )
+              }
+
+              self.visit_function(expression.pos.clone(), &real_params, return_type, body, generics, Some(covers), actual_arg_len - params.len())?;
             } else {
               unreachable!()
             }
@@ -603,7 +653,7 @@ impl<'v> Visitor<'v> {
   fn visit_function(
       &mut self,
       pos: TokenElement<'v>,
-      params: &'v Vec<(String, Type<'v>)>, return_type: &'v Type<'v>,
+      params: &Vec<(String, Type<'v>)>, return_type: &'v Type<'v>,
       body: &'v Rc<Expression<'v>>, generics: &Option<Vec<String>>, generic_covers: Option<HashMap<String, Type<'v>>>,
       splat_len: usize
   ) -> Result<(), ()> {
@@ -646,15 +696,11 @@ impl<'v> Visitor<'v> {
 
     let last_type = param_types.last().unwrap().clone();
 
-    println!("params before: {:#?}", param_types);
-
     if let TypeMode::Splat(_) = last_type.mode {
       let len = param_types.len();
 
       param_types[len - 1] = Type::new(last_type.node, TypeMode::Splat(Some(splat_len)))
     }
-
-    println!("params after: {:#?}", param_types);
 
     if generics.is_none() != generic_covers.is_none() && splat_len == 0 {
       return Ok(())
@@ -807,11 +853,6 @@ impl<'v> Visitor<'v> {
       Index(ref array, _) => if let TypeNode::Array(ref t, _) = self.type_expression(array)?.node {
         (**t).clone()
       } else {
-        self.current_tab().0.visualize(0);
-        println!();
-        self.current_tab().1.visualize(0);
-
-
         unreachable!()
       },
 
