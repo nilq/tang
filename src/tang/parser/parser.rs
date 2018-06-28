@@ -608,7 +608,17 @@ impl<'p> Parser<'p> {
           self.eat_lexeme("]")?;
 
           Type::array(t, len)
-        }
+        },
+
+        "(" => {
+          let params = self.parse_block_of(("(", ")"), &Self::_parse_type_comma)?;
+
+          self.eat_lexeme("->")?;
+
+          let return_type = self.parse_type()?;
+
+          Type::function(params, return_type)
+        },
 
         _ => return Err(
           response!(

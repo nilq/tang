@@ -8,31 +8,32 @@ use tang::visitor::*;
 
 fn main() {
   let content = r#"
-foo: def<T>(a: T) -> T {
-  a
+bar: def(a: int) -> int {
+  a + 10
+}
+
+foo: def(a: (int) -> int, b: (int) -> int) -> int {
+  a(b(10))
 }
 
 print: def<T>(..a: T) {
   foo(*a)
 
-  a := ()
-  a
+  ()
 }
 
 a: [int; 1 + 2] = [1, 2, 3]
 b := a[1]
 
 {
-
   b := "hey"
 
   f: str = b
-
 }
 
 h: int = b
 
-print("hey")
+print(bar, bar)
   "#;
 
   let source = Source::from("<static.wu>", content.lines().map(|x| x.into()).collect::<Vec<String>>());

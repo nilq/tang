@@ -94,7 +94,7 @@ impl<'t> Display for TypeNode<'t> {
           }
         }
 
-        write!(f, ") {}", return_type)
+        write!(f, ") -> {}", return_type)
       },
     }
   }
@@ -646,10 +646,18 @@ impl<'v> Visitor<'v> {
 
     let last_type = param_types.last().unwrap().clone();
 
+    println!("params before: {:#?}", param_types);
+
     if let TypeMode::Splat(_) = last_type.mode {
       let len = param_types.len();
 
       param_types[len - 1] = Type::new(last_type.node, TypeMode::Splat(Some(splat_len)))
+    }
+
+    println!("params after: {:#?}", param_types);
+
+    if generics.is_none() != generic_covers.is_none() && splat_len == 0 {
+      return Ok(())
     }
 
     let parent = self.current_tab().clone();
@@ -660,10 +668,6 @@ impl<'v> Visitor<'v> {
         TypeTab::new(Rc::new(parent.1), &param_types, HashMap::new())
       )
     );
-
-    if generics.is_none() != generic_covers.is_none() && splat_len == 0 {
-      return Ok(())
-    }
 
     self.visit_expression(body)?;
 
@@ -876,8 +880,6 @@ impl<'v> Visitor<'v> {
               )
             )
           },
-
-          _ => Type::from(TypeNode::Nil),
         }
       },
 
