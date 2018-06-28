@@ -87,7 +87,7 @@ impl<'g> Generator {
           result.push_str(&self.generate_expression(arg));
 
           if i < args.len() - 1 {
-            result.push(',')
+            result.push_str(", ")
           }
         }
 
@@ -101,11 +101,19 @@ impl<'g> Generator {
       Block(ref content) => {
         let flag_backup = self.flag.clone();
 
-        let mut result = if let Some(FlagImplicit::Assign(_)) = self.flag {
-          self.flag = Some(FlagImplicit::Return);
+        let flag = self.flag.clone();
 
-          "(function()\n"
-        } else {
+        let mut result = if let Some(ref f) = flag {
+          match *f {
+            FlagImplicit::Assign(_) => {
+              self.flag = Some(FlagImplicit::Return);
+
+              "(function()\n"
+            },
+
+            FlagImplicit::Return => ""
+          }
+        } else  {
           "do\n"
         }.to_string();
 
@@ -137,8 +145,16 @@ impl<'g> Generator {
 
         self.flag = flag_backup;
 
-        if let Some(FlagImplicit::Assign(_)) = self.flag {
-          result.push_str("end)()\n")
+        if let Some(ref f) = flag {
+          match *f {
+            FlagImplicit::Assign(_) => {
+              self.flag = Some(FlagImplicit::Return);
+
+              result.push_str("end)()")
+            },
+
+            FlagImplicit::Return => ()
+          }
         } else {
           result.push_str("end\n")
         }
