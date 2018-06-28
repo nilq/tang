@@ -42,8 +42,13 @@ impl<'g> Generator {
     let result = match statement.node {
       Expression(ref expression)       => self.generate_expression(expression),
       Variable(_, ref left, ref right) => self.generate_local(left, right),
+      Assignment(ref left, ref right)  => self.generate_assignment(left, right),
 
-      _ => String::new(),
+      Return(ref expr)  => if let Some(ref expr) = *expr {
+        format!("return {}\n", self.generate_expression(expr))
+      } else {
+        "return\n".to_string()
+      }, 
     };
 
     result
