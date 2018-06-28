@@ -581,15 +581,36 @@ impl<'p> Parser<'p> {
       Symbol => match self.current_lexeme().as_str() {
         "[" => {
           self.next()?;
+          self.next_newline()?;
 
           let t = self.parse_type()?;
 
+          self.next_newline()?;
+
+          self.eat_lexeme(";")?;
+
+          self.next_newline()?;
+
+          let expression = self.parse_expression()?;
+
+          let len = if let ExpressionNode::Int(ref len) = Self::fold_expression(&expression)?.node {
+            *len as usize
+          } else {
+            return Err(
+              response!(
+                Wrong(format!("length of array can be nothing but int")),
+                self.source.file,
+                expression.pos
+              )
+            )
+          };
+
           self.eat_lexeme("]")?;
 
-          Type::array(t)
+          Type::array(t, len)
         }
 
-        _   => return Err(
+        _ => return Err(
           response!(
             Wrong(format!("unexpected symbol `{}` in type", self.current_lexeme())),
             self.source.file,

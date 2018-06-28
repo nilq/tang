@@ -8,15 +8,18 @@ use tang::visitor::*;
 
 fn main() {
   let content = r#"
-foo: def(a: str) -> str {
+foo: def<T>(a: T) -> T {
   a
 }
 
-print: def<T> (..splat: T) {
-  foo(*splat)
+print: def<T>(..a: T) {
+  foo(*a)
 
   ()
 }
+
+a: [int; 1 + 2] = [1, 2, 3]
+b := a[1]
 
 print("hey")
   "#;

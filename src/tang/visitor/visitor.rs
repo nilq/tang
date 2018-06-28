@@ -9,7 +9,7 @@ use super::TokenElement;
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeNode<'t> {
   Int,
   Float,
@@ -18,7 +18,7 @@ pub enum TypeNode<'t> {
   Char,
   Nil,
   Id(String),
-  Array(Rc<Type<'t>>),
+  Array(Rc<Type<'t>>, usize),
   Func(Vec<Type<'t>>, Rc<Type<'t>>, Vec<String>, Option<&'t ExpressionNode<'t>>),
 }
 
@@ -33,11 +33,19 @@ impl<'t> TypeNode<'t> {
       },
 
       ExpressionNode::Array(ref content) => {
+        let array_content = if let &Array(ref array_content, ref len) = self {
+          if *len != content.len() {
+            return false
+          }
+
+          array_content
+        } else {
+          return false
+        };
+
         for element in content {
-          if let &Array(ref content) = self {
-            if !content.node.check_expression(&element.node) {
-              return false
-            }
+          if !array_content.node.check_expression(&element.node) {
+            return false
           }
         }
 
@@ -45,27 +53,6 @@ impl<'t> TypeNode<'t> {
       },
 
       _ => false
-    }
-  }
-}
-
-impl<'t> PartialEq for TypeNode<'t> {
-  fn eq(&self, other: &TypeNode) -> bool {
-    use self::TypeNode::*;
-
-    match (self, other) {
-      (&Int,   &Int)   => true,
-      (&Float, &Float) => true,
-
-      (&Bool, &Bool) => true,
-      (&Str,  &Str)  => true,
-      (&Char, &Char) => true,
-      (&Nil,  &Nil)  => true,
-
-      (&Array(ref a), &Array(ref b)) => a == b,
-      (&Id(ref a), &Id(ref b))       => a == b,
-
-      _                              => false,
     }
   }
 }
@@ -93,7 +80,7 @@ impl<'t> Display for TypeNode<'t> {
       Str              => write!(f, "str"),
       Char             => write!(f, "char"),
       Nil              => write!(f, "nil"),
-      Array(ref n)     => write!(f, "[{}]", n),
+      Array(ref n, l)  => write!(f, "[{}; {}]", n, l),
       Id(ref n)        => write!(f, "{}", n),
 
       Func(ref params, ref return_type, ..) => {
@@ -174,9 +161,8 @@ impl<'t> Type<'t> {
     Type::new(node, TypeMode::Regular)
   }
 
-
-  pub fn array(t: Type<'t>) -> Type<'t> {
-    Type::new(TypeNode::Array(Rc::new(t)), TypeMode::Regular)
+  pub fn array(t: Type<'t>, len: usize) -> Type<'t> {
+    Type::new(TypeNode::Array(Rc::new(t), len), TypeMode::Regular)
   }
 
   pub fn function(params: Vec<Type<'t>>, return_type: Type<'t>) -> Self {
@@ -568,13 +554,27 @@ impl<'v> Visitor<'v> {
       Index(ref left, ref index) => {
         let left_type = self.type_expression(left)?;
 
-        if let TypeNode::Array(_) = left_type.node {
+        if let TypeNode::Array(_, ref len) = left_type.node {
           let index_type = self.type_expression(index)?;
 
-          if let TypeNode::Func(..) = index_type.node {
-            return Err(
+          match index_type.node {
+            TypeNode::Int => {
+              if let Int(ref a) = Parser::fold_expression(index)?.node {
+                if *a as usize > *len {
+                  return Err(
+                    response!(
+                      Wrong(format!("index out of bounds, len is {} got {}", len, a)),
+                      self.source.file,
+                      left.pos
+                    )
+                  )
+                }
+              }
+            },
+
+            _ => return Err(
               response!(
-                Wrong(format!("can't index with `{}`, must be unsigned integer", index_type)),
+                Wrong(format!("can't index with `{}`, must be positive integer", index_type)),
                 self.source.file,
                 left.pos
               )
@@ -607,7 +607,6 @@ impl<'v> Visitor<'v> {
       body: &'v Rc<Expression<'v>>, generics: &Option<Vec<String>>, generic_covers: Option<HashMap<String, Type<'v>>>,
       splat_len: usize
   ) -> Result<(), ()> {
-
     let mut param_names = Vec::new();
     let mut param_types = Vec::new();
 
@@ -801,15 +800,20 @@ impl<'v> Visitor<'v> {
         }
       },
 
-      Index(ref array, _) => if let TypeNode::Array(ref t) = self.type_expression(array)?.node {
+      Index(ref array, _) => if let TypeNode::Array(ref t, _) = self.type_expression(array)?.node {
         (**t).clone()
       } else {
+        self.current_tab().0.visualize(0);
+        println!();
+        self.current_tab().1.visualize(0);
+
+
         unreachable!()
       },
 
       If(_, ref expression, _) => self.type_expression(expression)?,
 
-      Array(ref content) => Type::array(self.type_expression(content.first().unwrap())?),
+      Array(ref content) => Type::array(self.type_expression(content.first().unwrap())?, content.len()),
 
       Cast(_, ref t) => Type::from(t.node.clone()),
 
