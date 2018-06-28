@@ -7,8 +7,8 @@ macro_rules! token {
     token!($tokenizer, TokenType::$token_type, $accum)
   }};
   ($tokenizer:expr, $token_type:expr, $accum:expr) => {{
-    let tokenizer  = $tokenizer  as &$crate::tang::lexer::tokenizer::Tokenizer<'t>;
-    let token_type = $token_type as $crate::tang::lexer::token::TokenType;
+    let tokenizer  = $tokenizer  as &$crate::wu::lexer::tokenizer::Tokenizer<'t>;
+    let token_type = $token_type as $crate::wu::lexer::token::TokenType;
 
     let accum: String = $accum;
     let pos           = tokenizer.last_position();

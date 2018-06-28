@@ -6,4 +6,4 @@ print: def<T> (..splat: T) {
   foo(*splat)
 }
 
-print("hey", "hey")
+print("hey")

@@ -435,9 +435,12 @@ impl<'v> Visitor<'v> {
         let mut corrected_params = Vec::new(); // because functions don't know what's best for them >:()
 
         if let TypeNode::Func(ref params, _, ref generics, ref func) = expression_type {
-          let mut actual_arg_len = args.len() - 1;
+          let mut actual_arg_len = args.len();
 
           let mut type_buffer: Option<Type<'v>> = None; // for unwraps
+
+
+          let mut has_unwrap = false;
 
           for (index, param) in params.iter().enumerate() {
             let arg_type = if index < args.len() {
@@ -451,6 +454,8 @@ impl<'v> Visitor<'v> {
             let mode = arg_type.mode.clone();
 
             if let TypeMode::Unwrap(ref len) = mode {
+              has_unwrap = true;
+
               type_buffer = Some(arg_type.clone());
 
               actual_arg_len += len
@@ -487,6 +492,10 @@ impl<'v> Visitor<'v> {
                 )
               )
             }
+          }
+
+          if has_unwrap {
+            actual_arg_len -= 0
           }
 
           if actual_arg_len > params.len() {
