@@ -5,6 +5,7 @@ use tang::lexer::*;
 use tang::source::*;
 use tang::parser::*;
 use tang::visitor::*;
+use tang::compiler::*;
 
 fn main() {
   let content = r#"
@@ -23,6 +24,7 @@ print: def<T>(..a: T) {
 }
 
 a: [int; 1 + 2] = [1, 2, 3]
+
 b := a[1]
 
 {
@@ -60,6 +62,10 @@ print(bar, bar)
       let mut visitor = Visitor::new(&source, &ast);
 
       visitor.visit();
+
+      let mut generator = Generator::new();
+
+      println!("---\n{}", generator.generate(&ast))
     },
 
     _ => return,
